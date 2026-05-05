@@ -215,13 +215,17 @@ def run_once() -> dict:
     desc_keywords = env_list("DESC_KEYWORDS", DEFAULT_DESC_KEYWORDS)
 
     new_hits: list[JobHit] = []
+    sources_ok = 0
+    sources_failed = 0
 
     for source_name, site_expr in SOURCES.items():
         query = build_query(site_expr, title_keywords, desc_keywords, region)
         try:
             raw_hits = duckduckgo_search(query=query, timeout_s=timeout_s, max_results=max_results)
+            sources_ok += 1
         except Exception as e:
             print(f"[WARN] Source {source_name} indisponible: {e}")
+            sources_failed += 1
             continue
 
         for hit in raw_hits:
@@ -245,6 +249,8 @@ def run_once() -> dict:
             "bot_token": bot_token,
             "chat_id": chat_id,
             "timeout_s": timeout_s,
+            "sources_ok": sources_ok,
+            "sources_failed": sources_failed,
         }
 
     print(f"{datetime.now().isoformat()} - {len(new_hits)} nouvelles offres.")
@@ -259,6 +265,8 @@ def run_once() -> dict:
         "bot_token": bot_token,
         "chat_id": chat_id,
         "timeout_s": timeout_s,
+        "sources_ok": sources_ok,
+        "sources_failed": sources_failed,
     }
 
 
@@ -276,6 +284,7 @@ def main() -> int:
     recap_hour = int(os.getenv("DAILY_RECAP_HOUR", "22"))
     recap_enabled = os.getenv("DAILY_RECAP_ENABLED", "1").strip().lower() in {"1", "true", "yes", "y"}
     empty_scan_streak = 0
+    startup_ping = os.getenv("STARTUP_TELEGRAM_PING", "1").strip().lower() in {"1", "true", "yes", "y"}
 
     if mode == "once":
         return int(run_once()["code"])
@@ -288,6 +297,21 @@ def main() -> int:
         )
     else:
         print(f"Démarrage bot 24/7. Intervalle fixe: {interval_min} minute(s).")
+
+    if startup_ping:
+        token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+        chat = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+        if token and chat:
+            try:
+                telegram_send(
+                    token,
+                    chat,
+                    "Bot démarré sur Railway ✅ (ping de démarrage).",
+                    timeout_s=int(os.getenv("HTTP_TIMEOUT_SECONDS", "25")),
+                )
+            except Exception as e:
+                print(f"[WARN] Ping démarrage Telegram échoué: {e}")
+
     while True:
         result = run_once()
         if result["new_hits"] > 0:
@@ -301,10 +325,16 @@ def main() -> int:
                 and empty_scan_streak % max(empty_notify_every, 1) == 0
             ):
                 try:
+                    ok = int(result.get("sources_ok", 0) or 0)
+                    fail = int(result.get("sources_failed", 0) or 0)
                     telegram_send(
                         result["bot_token"],
                         result["chat_id"],
-                        f"Scan effectué ({datetime.now().strftime('%Y-%m-%d %H:%M')}) : aucune nouvelle offre.",
+                        (
+                            f"Scan effectué ({datetime.now().strftime('%Y-%m-%d %H:%M')}) : "
+                            f"aucune nouvelle offre.\n"
+                            f"Sources OK: {ok} | échecs: {fail}"
+                        ),
                         timeout_s=int(result["timeout_s"]),
                     )
                 except Exception as e:
