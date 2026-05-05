@@ -31,12 +31,11 @@ $env:TELEGRAM_CHAT_ID = "TON_CHAT_ID"
 $env:RUN_MODE = "daemon"
 $env:POLL_MINUTES = "15"
 $env:SMART_SCHEDULE = "1"
-$env:DAY_POLL_MINUTES = "5"
+$env:DAY_POLL_MINUTES = "10"
 $env:NIGHT_POLL_MINUTES = "15"
 $env:DAY_START_HOUR = "8"
 $env:DAY_END_HOUR = "22"
-$env:NOTIFY_EMPTY_SCAN = "1"
-$env:EMPTY_SCAN_NOTIFY_EVERY = "3"
+$env:NOTIFY_SCAN_STATUS = "1"
 $env:DAILY_RECAP_ENABLED = "1"
 $env:DAILY_RECAP_HOUR = "22"
 $env:TITLE_KEYWORDS = "alternance,alternant,apprenti"
@@ -76,7 +75,6 @@ cd "C:\Users\walid\Downloads\PhD_CV_Template\job_alert_bot"
   - `DAY_START_HOUR=8`
   - `DAY_END_HOUR=22`
 - Messages de suivi:
-  - `NOTIFY_EMPTY_SCAN=1` (message "scan effectué" actif)
-  - `EMPTY_SCAN_NOTIFY_EVERY=3` (envoie 1 message tous les 3 scans vides)
+  - `NOTIFY_SCAN_STATUS=1` (message Telegram à chaque fin de scan)
   - `DAILY_RECAP_ENABLED=1`
   - `DAILY_RECAP_HOUR=22` (récap quotidien à 22h)

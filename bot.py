@@ -150,8 +150,19 @@ def telegram_send(bot_token: str, chat_id: str, message: str, timeout_s: int) ->
         "text": message[:4000],
         "disable_web_page_preview": True,
     }
-    r = requests.post(url, json=payload, timeout=timeout_s)
-    r.raise_for_status()
+    last_err: Exception | None = None
+    for attempt in range(1, 4):
+        try:
+            r = requests.post(url, json=payload, timeout=timeout_s)
+            if r.status_code in {429, 500, 502, 503, 504}:
+                raise RuntimeError(f"Telegram HTTP {r.status_code}: {r.text[:200]}")
+            r.raise_for_status()
+            return
+        except Exception as e:
+            last_err = e
+            time.sleep(min(2 * attempt, 10))
+    assert last_err is not None
+    raise last_err
 
 
 def get_meta(key: str) -> str | None:
@@ -275,15 +286,13 @@ def main() -> int:
     mode = os.getenv("RUN_MODE", "daemon").strip().lower()
     interval_min = int(os.getenv("POLL_MINUTES", "15"))
     smart_mode = os.getenv("SMART_SCHEDULE", "1").strip().lower() in {"1", "true", "yes", "y"}
-    day_interval_min = int(os.getenv("DAY_POLL_MINUTES", "5"))
+    day_interval_min = int(os.getenv("DAY_POLL_MINUTES", "10"))
     night_interval_min = int(os.getenv("NIGHT_POLL_MINUTES", "15"))
     day_start_hour = int(os.getenv("DAY_START_HOUR", "8"))
     day_end_hour = int(os.getenv("DAY_END_HOUR", "22"))
-    notify_empty_scan = os.getenv("NOTIFY_EMPTY_SCAN", "1").strip().lower() in {"1", "true", "yes", "y"}
-    empty_notify_every = int(os.getenv("EMPTY_SCAN_NOTIFY_EVERY", "3"))
+    notify_scan_status = os.getenv("NOTIFY_SCAN_STATUS", "1").strip().lower() in {"1", "true", "yes", "y"}
     recap_hour = int(os.getenv("DAILY_RECAP_HOUR", "22"))
     recap_enabled = os.getenv("DAILY_RECAP_ENABLED", "1").strip().lower() in {"1", "true", "yes", "y"}
-    empty_scan_streak = 0
     startup_ping = os.getenv("STARTUP_TELEGRAM_PING", "1").strip().lower() in {"1", "true", "yes", "y"}
 
     if mode == "once":
@@ -314,31 +323,31 @@ def main() -> int:
 
     while True:
         result = run_once()
-        if result["new_hits"] > 0:
-            empty_scan_streak = 0
-        else:
-            empty_scan_streak += 1
-            if (
-                notify_empty_scan
-                and result["bot_token"]
-                and result["chat_id"]
-                and empty_scan_streak % max(empty_notify_every, 1) == 0
-            ):
-                try:
-                    ok = int(result.get("sources_ok", 0) or 0)
-                    fail = int(result.get("sources_failed", 0) or 0)
-                    telegram_send(
-                        result["bot_token"],
-                        result["chat_id"],
-                        (
-                            f"Scan effectué ({datetime.now().strftime('%Y-%m-%d %H:%M')}) : "
-                            f"aucune nouvelle offre.\n"
-                            f"Sources OK: {ok} | échecs: {fail}"
-                        ),
-                        timeout_s=int(result["timeout_s"]),
+        if notify_scan_status and result.get("bot_token") and result.get("chat_id"):
+            try:
+                ok = int(result.get("sources_ok", 0) or 0)
+                fail = int(result.get("sources_failed", 0) or 0)
+                hits = int(result.get("new_hits", 0) or 0)
+                if hits > 0:
+                    status_msg = (
+                        f"Scan terminé ({datetime.now().strftime('%Y-%m-%d %H:%M')}) : "
+                        f"{hits} nouvelle(s) offre(s) envoyée(s).\n"
+                        f"Sources OK: {ok} | échecs: {fail}"
                     )
-                except Exception as e:
-                    print(f"[WARN] Message scan vide non envoyé: {e}")
+                else:
+                    status_msg = (
+                        f"Scan terminé ({datetime.now().strftime('%Y-%m-%d %H:%M')}) : "
+                        f"aucune nouvelle offre.\n"
+                        f"Sources OK: {ok} | échecs: {fail}"
+                    )
+                telegram_send(
+                    result["bot_token"],
+                    result["chat_id"],
+                    status_msg,
+                    timeout_s=int(result["timeout_s"]),
+                )
+            except Exception as e:
+                print(f"[WARN] Message de statut de scan non envoyé: {e}")
 
         if recap_enabled and result["bot_token"] and result["chat_id"] and datetime.now().hour == recap_hour:
             recap_key = "last_daily_recap_date_utc"
