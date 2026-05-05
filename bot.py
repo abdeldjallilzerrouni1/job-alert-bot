@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parent
 DB_PATH = ROOT / "seen_jobs.db"
 
 DUCKDUCKGO_HTML = "https://duckduckgo.com/html/"
+BING_SEARCH = "https://www.bing.com/search"
 
 SOURCES = {
     "LinkedIn": "site:linkedin.com/jobs",
@@ -89,15 +90,19 @@ def build_query(site_expr: str, title_keywords: list[str], desc_keywords: list[s
     return " ".join(pieces)
 
 
-def duckduckgo_search(query: str, timeout_s: int, max_results: int) -> list[JobHit]:
-    params = {"q": query, "kl": "fr-fr"}
-    headers = {
+def _http_headers() -> dict[str, str]:
+    return {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        )
+        ),
+        "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
     }
-    resp = requests.get(DUCKDUCKGO_HTML, params=params, headers=headers, timeout=timeout_s)
+
+
+def duckduckgo_search(query: str, timeout_s: int, max_results: int) -> list[JobHit]:
+    params = {"q": query, "kl": "fr-fr"}
+    resp = requests.get(DUCKDUCKGO_HTML, params=params, headers=_http_headers(), timeout=timeout_s)
     resp.raise_for_status()
 
     soup = BeautifulSoup(resp.text, "html.parser")
@@ -116,6 +121,60 @@ def duckduckgo_search(query: str, timeout_s: int, max_results: int) -> list[JobH
         if len(items) >= max_results:
             break
     return items
+
+
+def bing_search(query: str, timeout_s: int, max_results: int) -> list[JobHit]:
+    params = {"q": query, "setlang": "fr-fr", "cc": "FR"}
+    resp = requests.get(BING_SEARCH, params=params, headers=_http_headers(), timeout=timeout_s)
+    resp.raise_for_status()
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    items: list[JobHit] = []
+    for li in soup.select("li.b_algo"):
+        a = li.select_one("h2 a")
+        if not a:
+            continue
+        link = (a.get("href") or "").strip()
+        title = a.get_text(" ", strip=True)
+        snippet = ""
+        cap_p = li.select_one("div.b_caption p")
+        if cap_p:
+            snippet = cap_p.get_text(" ", strip=True)
+        if not link or not title:
+            continue
+        items.append(JobHit(source="", title=title, link=link, snippet=snippet))
+        if len(items) >= max_results:
+            break
+    return items
+
+
+def search_with_retries(
+    engine: str, query: str, timeout_s: int, max_results: int, retries: int
+) -> list[JobHit]:
+    last_err: Exception | None = None
+    for attempt in range(1, max(retries, 1) + 1):
+        try:
+            if engine.lower() == "bing":
+                return bing_search(query, timeout_s=timeout_s, max_results=max_results)
+            return duckduckgo_search(query, timeout_s=timeout_s, max_results=max_results)
+        except Exception as e:
+            last_err = e
+            time.sleep(min(2 * attempt, 12))
+    assert last_err is not None
+    raise last_err
+
+
+def search_web(query: str, timeout_s: int, max_results: int) -> tuple[list[JobHit], str]:
+    primary = os.getenv("SEARCH_PRIMARY", "duckduckgo").strip().lower()
+    fallback = os.getenv("SEARCH_FALLBACK", "bing").strip().lower()
+    retries = int(os.getenv("SEARCH_RETRIES", "3"))
+
+    try:
+        return search_with_retries(primary, query, timeout_s, max_results, retries), primary
+    except Exception as primary_err:
+        if not fallback or fallback == primary:
+            raise primary_err
+        return search_with_retries(fallback, query, timeout_s, max_results, retries), f"{primary}->{fallback}"
 
 
 def make_id(link: str) -> str:
@@ -232,8 +291,11 @@ def run_once() -> dict:
     for source_name, site_expr in SOURCES.items():
         query = build_query(site_expr, title_keywords, desc_keywords, region)
         try:
-            raw_hits = duckduckgo_search(query=query, timeout_s=timeout_s, max_results=max_results)
+            raw_hits, engine_used = search_web(
+                query=query, timeout_s=timeout_s, max_results=max_results
+            )
             sources_ok += 1
+            print(f"[INFO] {source_name}: moteur {engine_used} | résultats bruts: {len(raw_hits)}")
         except Exception as e:
             print(f"[WARN] Source {source_name} indisponible: {e}")
             sources_failed += 1

@@ -1,6 +1,6 @@
 # Bot Alertes Alternance 24/7
 
-Bot Python qui scanne des offres toutes les 15 minutes et envoie des notifications Telegram.
+Bot Python qui scanne des offres en continu (mode intelligent) et envoie des notifications Telegram.
 
 ## Ce que fait le bot
 
@@ -40,6 +40,11 @@ $env:DAILY_RECAP_ENABLED = "1"
 $env:DAILY_RECAP_HOUR = "22"
 $env:TITLE_KEYWORDS = "alternance,alternant,apprenti"
 $env:DESC_KEYWORDS = "solidworks,catia,creo,topsolid,solidedge"
+$env:MAX_RESULTS_PER_SOURCE = "25"
+$env:HTTP_TIMEOUT_SECONDS = "45"
+$env:SEARCH_PRIMARY = "duckduckgo"
+$env:SEARCH_FALLBACK = "bing"
+$env:SEARCH_RETRIES = "3"
 ```
 
 ## 4) Lancer le bot
@@ -61,6 +66,10 @@ cd "C:\Users\walid\Downloads\PhD_CV_Template\job_alert_bot"
    - `POLL_MINUTES=15`
    - `TITLE_KEYWORDS=alternance,alternant,apprenti`
    - `DESC_KEYWORDS=solidworks,catia,creo,topsolid,solidedge`
+   - `SEARCH_PRIMARY=duckduckgo`
+   - `SEARCH_FALLBACK=bing`
+   - `SEARCH_RETRIES=3`
+   - `HTTP_TIMEOUT_SECONDS=45`
 5. Déploie. Le bot tourne en continu.
 
 ## Personnalisation utile
@@ -70,7 +79,7 @@ cd "C:\Users\walid\Downloads\PhD_CV_Template\job_alert_bot"
 - `RUN_MODE=once` pour faire un test unique
 - Mode intelligent:
   - `SMART_SCHEDULE=1`
-  - `DAY_POLL_MINUTES=5`
+  - `DAY_POLL_MINUTES=10`
   - `NIGHT_POLL_MINUTES=15`
   - `DAY_START_HOUR=8`
   - `DAY_END_HOUR=22`
