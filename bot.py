@@ -28,6 +28,7 @@ DB_PATH = ROOT / "seen_jobs.db"
 
 DUCKDUCKGO_HTML = "https://duckduckgo.com/html/"
 BING_SEARCH = "https://www.bing.com/search"
+YANDEX_SEARCH = "https://yandex.com/search/"
 
 SOURCES = {
     "LinkedIn": "site:linkedin.com/jobs",
@@ -148,14 +149,42 @@ def bing_search(query: str, timeout_s: int, max_results: int) -> list[JobHit]:
     return items
 
 
+def yandex_search(query: str, timeout_s: int, max_results: int) -> list[JobHit]:
+    params = {"text": query, "lr": "134"}  # lr=134 ~ France (approx)
+    resp = requests.get(YANDEX_SEARCH, params=params, headers=_http_headers(), timeout=timeout_s)
+    resp.raise_for_status()
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    items: list[JobHit] = []
+    for li in soup.select("li.serp-item"):
+        a = li.select_one("h2 a, a.Link.Link_theme_outer")
+        if not a:
+            continue
+        link = (a.get("href") or "").strip()
+        title = a.get_text(" ", strip=True)
+        snippet = ""
+        text_div = li.select_one("div.Text.Text_size_long, div.Text")
+        if text_div:
+            snippet = text_div.get_text(" ", strip=True)
+        if not link or not title:
+            continue
+        items.append(JobHit(source="", title=title, link=link, snippet=snippet))
+        if len(items) >= max_results:
+            break
+    return items
+
+
 def search_with_retries(
     engine: str, query: str, timeout_s: int, max_results: int, retries: int
 ) -> list[JobHit]:
     last_err: Exception | None = None
     for attempt in range(1, max(retries, 1) + 1):
         try:
-            if engine.lower() == "bing":
+            eng = engine.lower()
+            if eng == "bing":
                 return bing_search(query, timeout_s=timeout_s, max_results=max_results)
+            if eng == "yandex":
+                return yandex_search(query, timeout_s=timeout_s, max_results=max_results)
             return duckduckgo_search(query, timeout_s=timeout_s, max_results=max_results)
         except Exception as e:
             last_err = e
@@ -166,15 +195,31 @@ def search_with_retries(
 
 def search_web(query: str, timeout_s: int, max_results: int) -> tuple[list[JobHit], str]:
     primary = os.getenv("SEARCH_PRIMARY", "duckduckgo").strip().lower()
-    fallback = os.getenv("SEARCH_FALLBACK", "bing").strip().lower()
+    raw_fallbacks = os.getenv("SEARCH_FALLBACKS", "").strip()
+    if raw_fallbacks:
+        fallbacks = [x.strip().lower() for x in raw_fallbacks.split(",") if x.strip()]
+    else:
+        fb = os.getenv("SEARCH_FALLBACK", "bing").strip().lower()
+        fallbacks = [fb] if fb else []
     retries = int(os.getenv("SEARCH_RETRIES", "3"))
 
-    try:
-        return search_with_retries(primary, query, timeout_s, max_results, retries), primary
-    except Exception as primary_err:
-        if not fallback or fallback == primary:
-            raise primary_err
-        return search_with_retries(fallback, query, timeout_s, max_results, retries), f"{primary}->{fallback}"
+    engines_tried: list[str] = []
+    last_err: Exception | None = None
+
+    for engine in [primary, *fallbacks]:
+        if not engine or engine in engines_tried:
+            continue
+        engines_tried.append(engine)
+        try:
+            hits = search_with_retries(engine, query, timeout_s, max_results, retries)
+            chain = "->".join(engines_tried)
+            return hits, chain
+        except Exception as e:
+            last_err = e
+            continue
+
+    assert last_err is not None
+    raise last_err
 
 
 def make_id(link: str) -> str:

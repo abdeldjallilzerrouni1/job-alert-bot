@@ -44,6 +44,7 @@ $env:MAX_RESULTS_PER_SOURCE = "25"
 $env:HTTP_TIMEOUT_SECONDS = "45"
 $env:SEARCH_PRIMARY = "duckduckgo"
 $env:SEARCH_FALLBACK = "bing"
+$env:SEARCH_FALLBACKS = "bing,yandex"
 $env:SEARCH_RETRIES = "3"
 ```
 
@@ -68,6 +69,7 @@ cd "C:\Users\walid\Downloads\PhD_CV_Template\job_alert_bot"
    - `DESC_KEYWORDS=solidworks,catia,creo,topsolid,solidedge`
    - `SEARCH_PRIMARY=duckduckgo`
    - `SEARCH_FALLBACK=bing`
+   - `SEARCH_FALLBACKS=bing,yandex` (optionnel, remplace la ligne du dessus si tu préfères)
    - `SEARCH_RETRIES=3`
    - `HTTP_TIMEOUT_SECONDS=45`
 5. Déploie. Le bot tourne en continu.
