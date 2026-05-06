@@ -5,6 +5,7 @@ import re
 import sqlite3
 import sys
 import time
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -75,7 +76,12 @@ def init_db() -> None:
 
 
 def normalize(text: str) -> str:
-    return re.sub(r"\s+", " ", text or "").strip().lower()
+    raw = (text or "").strip().lower()
+    # Rend la détection plus robuste: ignore accents (genie == génie), etc.
+    no_accents = "".join(
+        ch for ch in unicodedata.normalize("NFD", raw) if unicodedata.category(ch) != "Mn"
+    )
+    return re.sub(r"\s+", " ", no_accents).strip()
 
 
 def contains_any(text: str, keywords: Iterable[str]) -> bool:
