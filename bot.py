@@ -13,6 +13,7 @@ from urllib.parse import quote_plus
 
 import requests
 from bs4 import BeautifulSoup
+from zoneinfo import ZoneInfo
 
 
 @dataclass
@@ -304,6 +305,15 @@ def get_daily_counts_utc() -> tuple[int, dict[str, int]]:
     return total, per_source
 
 
+def now_local() -> datetime:
+    tz_name = os.getenv("TIMEZONE", "Europe/Paris").strip() or "Europe/Paris"
+    try:
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        tz = ZoneInfo("Europe/Paris")
+    return datetime.now(tz)
+
+
 def format_job(job: JobHit) -> str:
     snippet = (job.snippet or "").strip()
     if len(snippet) > 300:
@@ -435,15 +445,16 @@ def main() -> int:
                 ok = int(result.get("sources_ok", 0) or 0)
                 fail = int(result.get("sources_failed", 0) or 0)
                 hits = int(result.get("new_hits", 0) or 0)
+                ts = now_local().strftime("%Y-%m-%d %H:%M")
                 if hits > 0:
                     status_msg = (
-                        f"Scan terminé ({datetime.now().strftime('%Y-%m-%d %H:%M')}) : "
+                        f"Scan terminé ({ts}) : "
                         f"{hits} nouvelle(s) offre(s) envoyée(s).\n"
                         f"Sources OK: {ok} | échecs: {fail}"
                     )
                 else:
                     status_msg = (
-                        f"Scan terminé ({datetime.now().strftime('%Y-%m-%d %H:%M')}) : "
+                        f"Scan terminé ({ts}) : "
                         f"aucune nouvelle offre.\n"
                         f"Sources OK: {ok} | échecs: {fail}"
                     )
@@ -456,7 +467,7 @@ def main() -> int:
             except Exception as e:
                 print(f"[WARN] Message de statut de scan non envoyé: {e}")
 
-        if recap_enabled and result["bot_token"] and result["chat_id"] and datetime.now().hour == recap_hour:
+        if recap_enabled and result["bot_token"] and result["chat_id"] and now_local().hour == recap_hour:
             recap_key = "last_daily_recap_date_utc"
             today_utc = datetime.now(timezone.utc).date().isoformat()
             if get_meta(recap_key) != today_utc:
@@ -480,7 +491,7 @@ def main() -> int:
                     print(f"[WARN] Récap quotidien non envoyé: {e}")
 
         if smart_mode:
-            hour = datetime.now().hour
+            hour = now_local().hour
             is_day = day_start_hour <= hour < day_end_hour
             next_interval_min = day_interval_min if is_day else night_interval_min
         else:
